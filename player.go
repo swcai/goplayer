@@ -1,88 +1,81 @@
 package main
 
 import (
-	"encoding/json"
+	"math/rand"
 	"flag"
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 type Entry struct {
-	Name  string // name of the object
-	IsDir bool
-	Mode  os.FileMode
+	Name  string
 }
-
-const (
-	filePrefix = "/f/"
-)
 
 var (
 	addr = flag.String("http", ":8080", "http listen address")
-	root = flag.String("root", "/home/flo/nfs/flo/Music/", "music root")
+	root = flag.String("root", "/var/music", "music root")
+	entries []Entry
 )
 
-func main() {
-	flag.Parse()
-	http.HandleFunc("/", Index)
-	http.HandleFunc(filePrefix, File)
-	http.ListenAndServe(*addr, nil)
-}
-
-func Index(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "./index.html")
-	log.Print("index called")
-}
-
-func File(w http.ResponseWriter, r *http.Request) {
-	fn := *root + r.URL.Path[len(filePrefix):]
-	fi, err := os.Stat(fn)
-	log.Print("File called: ", fn)
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-	if fi.IsDir() {
-		serveDirectory(fn, w, r)
-		return
-	}
-	http.ServeFile(w, r, fn)
-}
-
-func serveDirectory(fn string, w http.ResponseWriter,
-	r *http.Request) {
+func buildPlayList(path string) []Entry{
 	defer func() {
-		if err, ok := recover().(error); ok {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		if _, ok := recover().(error); ok {
+			log.Println("failed to build a playlist")
 		}
 	}()
-	d, err := os.Open(fn)
+	d, err := os.Open(path)
 	if err != nil {
 		panic(err)
 	}
-	log.Print("serverDirectory called: ", fn)
 
 	files, err := d.Readdir(-1)
 	if err != nil {
 		panic(err)
 	}
 
-	// Json Encode isn't working with the FileInfo interface,
-	// therefore populate an Array of Entry and add the Name method
-	entries := make([]Entry, len(files), len(files))
-
+	entries := make([]Entry, 0, len(files))
+	dirs := make([]string, 0)
 	for k := range files {
-		//log.Print(files[k].Name())
-		entries[k].Name = files[k].Name()
-		entries[k].IsDir = files[k].IsDir()
-		entries[k].Mode = files[k].Mode()
+		if !files[k].IsDir() {
+			entry := Entry{path + "/" + files[k].Name()}
+			log.Print(entry.Name)
+			entries = append(entries, entry)
+		} else {
+			dirs = append(dirs, files[k].Name())
+		}
 	}
 
-	j := json.NewEncoder(w)
-
-	if err := j.Encode(&entries); err != nil {
-		panic(err)
+	if len(dirs) != 0 {
+		for _, path := range dirs {
+			entries = append(entries, buildPlayList(*root + "/" + path)...)
+		}
 	}
+	return entries
+}
+
+func main() {
+	flag.Parse()
+	rand.Seed(time.Now().UnixNano())
+	entries = buildPlayList(*root)
+	http.HandleFunc("/", index)
+	http.HandleFunc("/random", randomFile)
+	http.ListenAndServe(*addr, nil)
+}
+
+func index(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "./index.html")
+	log.Print("index called")
+}
+
+func randomFile(w http.ResponseWriter, r *http.Request) {
+	index := rand.Int() % len(entries)
+	_, err := os.Stat(entries[index].Name)
+	log.Print("File called: ", entries[index])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	http.ServeFile(w, r, entries[index].Name)
 }
