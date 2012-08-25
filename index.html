@@ -19,8 +19,6 @@ function init() {
 	$('#player').bind('ended', next);
 	$('#next').click(next);
 }
-function play(el) {
-}
 function next() {
 	$('#player').attr('src', '/random');
 }
@@ -29,7 +27,7 @@ google.setOnLoadCallback(init);
 </script>
 </head>
 <body>
-<audio id="player" controls autoplay autobuffer src='/random'>
+<audio id="player" controls autoplay src='/random'>
 <p>What? Your browser doesn't support &lt;audio&gt;?! Lame.</p>
 </audio>
 <div id="controls">
